@@ -11,11 +11,11 @@ def load_gitt():
     path = (
         pathlib.Path(__file__).parent
         / "data"
-        / "DigiBatt-BAK-5000-N21700CG-006-GITT-data.csv"
+        / "DigiBatt-BAK-5000-N21700CG-006-GITT-data.parquet"
     )
 
     data = (
-        pd.read_csv(path)
+        pd.read_parquet(path)
         .assign(Time_s=lambda x: x["Time_h"] * 3600)
         .rename(
             columns={
