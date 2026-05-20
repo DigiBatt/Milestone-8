@@ -23,7 +23,7 @@ Documentation of non-destructive cell parameterization and resulting model-based
 
 
 ### Repository structure
-- `data/` bundles `DigiBatt-BAK-5000-N21700CG-006-GITT-data.csv` and stores any generated parameters. 
+- `data/` bundles `DigiBatt-BAK-5000-N21700CG-006-GITT-data.parquet` and stores any generated parameters. 
 - `utils.py`: 
   - `load_gitt()` will load the bundled GITT data in `DigiBatt-BAK-5000-N21700CG-006-GITT-data.csv` and return it as a `bdat.CyclingData` instance. 
 - `fit.py` executes as a script and uses pybop to extract open-circuit voltage, resistances and timeconstants from the bundled GITT data. Parameters are extracted from each rest pulse and the adjacent current pulses. 
