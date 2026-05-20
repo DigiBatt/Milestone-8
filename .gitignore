@@ -2,4 +2,4 @@
 __pycache__/
 .ipynb_checkpoints/
 *.json
-*DigiBatt-BAK-5000-N21700CG-006-GITT-data.csv
+data/DigiBatt-BAK-5000-N21700CG-006-GITT-data.csv
