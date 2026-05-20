@@ -5,7 +5,7 @@ import logging
 import numpy as np
 
 from .cellgrid import CellGrid
-from .interpolation import InterpolationKind
+from .interpolant import InterpolationKind
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,7 @@ class Module:
         self,
         n_parallel: int,
         n_series: int,
-        interpolants: dict[str, InterpolationKind] | None = None,
+        interpolants: dict[str, str | InterpolationKind] | None = None,
         interpolants_options: dict[str, dict] | None = None,
         cell_parameters: dict | None = None,
         bussbar_parameters: dict | None = None,
@@ -216,6 +216,8 @@ class Module:
         residual = np.hstack([a.flatten() for a in alg])
         return residual
 
-    def obs(self, states: np.ndarray, variables: np.ndarray) -> np.ndarray:
+    def obs(
+        self, states: np.ndarray, variables: np.ndarray, current: np.ndarray
+    ) -> np.ndarray:
         z = self.split_z(variables)
         return self.cellgrid.voltage(states, z["Cell current / A"])

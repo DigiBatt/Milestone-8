@@ -1,59 +1,19 @@
-import json
 import pathlib
-import uuid
 
 import bdat
 import numpy as np
+import pandas as pd
 import pybamm
 import pybop
 import scipy.integrate as integrate
 import scipy.optimize as optimize
 import tqdm.auto as tqdm
 
-from utils import NumpyEncoder, load_ocv_and_tau
-
-
-def save_tau_ocv(results: dict):
-    path = pathlib.Path(__file__).resolve().parent.joinpath("data")
-    if not path.exists():
-        path.mkdir()
-    with open(path.joinpath(f"tau_ocv_{uuid.uuid4()}.json"), "w") as f:
-        json.dump(results, f, indent=4, cls=NumpyEncoder)
-    return
-
-
-def save_resistances(results: dict):
-    path = pathlib.Path(__file__).resolve().parent.joinpath("data")
-    if not path.exists():
-        path.mkdir()
-    with open(path.joinpath(f"resistances_{uuid.uuid4()}.json"), "w") as f:
-        json.dump(results, f, indent=4, cls=NumpyEncoder)
-    return
-
-
-def wipe_tau_ocv():
-    path = pathlib.Path(__file__).resolve().parent.joinpath("data")
-    if path.exists():
-        files = path.glob("tau_ocv*.json")
-        for file in files:
-            file.unlink()
-    return
-
-
-def wipe_resistances():
-    path = pathlib.Path(__file__).resolve().parent.joinpath("data")
-    if path.exists():
-        files = path.glob("resistances*.json")
-        for file in files:
-            file.unlink()
-    return
-
 
 def fit_chunk(
     time: np.ndarray,
     current: np.ndarray,
     voltage: np.ndarray,
-    soc: np.ndarray | None = None,
     ocv: float | pybamm.Interpolant | None = None,
     R0: float | pybamm.Interpolant | None = None,
     R1: float | pybamm.Interpolant | None = None,
@@ -72,13 +32,7 @@ def fit_chunk(
         "C1 [F]": pybamm.Parameter("Tau1 [s]") / pybamm.Parameter("R1 [Ohm]"),
         "C2 [F]": pybamm.Parameter("Tau2 [s]") / pybamm.Parameter("R2 [Ohm]"),
     }
-    if soc is not None:
-        param_const["SoC"] = pybamm.Interpolant(
-            time,
-            soc,
-            [pybamm.t],
-        )
-        param_const["Initial SoC"] = soc[0]
+
     param_fit = {
         "Element-1 initial overpotential [V]": pybop.Parameter(
             initial_value=0, bounds=[-1, 1]
@@ -153,7 +107,7 @@ def fit_chunk(
     options = pybop.SciPyMinimizeOptions(
         method="trust-constr",
         multistart=10,
-        # maxiter=10,
+        # maxiter=100,
         constraints=constraints,
     )
     optimizer = pybop.SciPyMinimize(problem, options=options)
@@ -166,137 +120,70 @@ def fit_chunk(
     return {**results.best_inputs, "cost": results.best_cost}
 
 
-def fit_timeconstants(data: bdat.CyclingData):
+def fit_chunks(data: bdat.CyclingData):
     """
-    Fits the time constants of the GITT data using a simple exponential decay model.
+    Fits all
     """
+    results = []
 
-    # We know the data spans SOC=[0,1], so we cheat a little here
     q = integrate.cumulative_trapezoid(data.current, data.time, initial=0)
     soc = (q - q.min()) / (q.max() - q.min())
     steps = list(bdat.steps.find_steps(data))
 
     for i, step in enumerate(tqdm.tqdm(steps, desc="Fitting steps")):
-        # Skip non-rest steps
-        if step.charge != 0:
+        if step.charge != 0 or (i == 0):
             continue
-        start = step.rowStart
-        end = step.rowEnd
-        time = data.time[start:end]
-        voltage = data.voltage[start:end]
-        current = data.current[start:end]
+
+        if steps[i - 1].charge == 0:
+            continue
+
         if steps[i - 1].charge > 0:
             mode = "Charge"
+
         elif steps[i - 1].charge < 0:
             mode = "Discharge"
         else:
             mode = "Unknown"
 
-        try:
-            results = fit_chunk(
-                time - time.min(),
-                current,
-                voltage,
-                R0=1,
-                R1=1,
-                R2=1,
-            )
-            results["Step index / 1"] = i + 1
-            results["State of Charge / 1"] = soc[start:end].mean()
-            results["Mode"] = mode
-            save_tau_ocv(results)
-        except Exception as e:
-            tqdm.tqdm.write(f"Failed to fit step {i + 1} with error: {e}")
-    return results
+        # 10 second back from pulse start
+        start = np.abs(data.time - (steps[i - 1].start - 10)).argmin()
 
+        # Last is last
+        if i == len(steps) - 1:
+            end = step.rowEnd
+        # 10 seconds into next pulse if it's different sign
+        elif np.sign(steps[i - 1].charge) != np.sign(steps[i + 1].charge):
+            end = np.abs(data.time - (step.end + 10)).argmin()
+        # All of next pulse of same sign
+        elif np.sign(steps[i - 1].charge) == np.sign(steps[i + 1].charge):
+            end = np.abs(data.time - (steps[i + 1].end)).argmin()
 
-def fit_resistances(data: bdat.CyclingData):
-    """
-    Fits the resistances     of the GITT data using a simple exponential decay model.
-    """
+        else:
+            raise ValueError(f"Unexpected step pattern at step {i}")
 
-    ocv_tau = load_ocv_and_tau()
-
-    # We know the data spans SOC=[0,1], so we cheat a little here
-    q = integrate.cumulative_trapezoid(data.current, data.time, initial=0)
-    soc = (q - q.min()) / (q.max() - q.min())
-    steps = list(bdat.steps.find_steps(data))
-
-    for i, step in enumerate(tqdm.tqdm(steps, desc="Fitting steps")):
-        # Skip non-rest steps
-        if step.charge == 0:
-            continue
-        if i == 0:
-            continue
-
-        # Go 10 seconds into the previous and next steps
-        start = np.abs(data.time - (step.start - 10)).argmin()
-        end = np.abs(data.time - (step.end + 10)).argmin()
         time = data.time[start:end]
         voltage = data.voltage[start:end]
         current = data.current[start:end]
 
-        if step.charge > 0:
-            mode = "Charge"
-        elif step.charge < 0:
-            mode = "Discharge"
-        else:
-            mode = "Unknown"
-
-        mask = ocv_tau["Mode"] == mode
-        ocv = np.interp(
-            soc[start:end].mean(),
-            ocv_tau.loc[mask, "State of Charge / 1"],
-            ocv_tau.loc[mask, "Open-circuit voltage [V]"],
-        )
-        Tau1 = np.interp(
-            soc[start:end].mean(),
-            ocv_tau.loc[mask, "State of Charge / 1"],
-            ocv_tau.loc[mask, "Tau1 [s]"],
-        )
-        Tau2 = np.interp(
-            soc[start:end].mean(),
-            ocv_tau.loc[mask, "State of Charge / 1"],
-            ocv_tau.loc[mask, "Tau2 [s]"],
-        )
-
-        df = ocv_tau.loc[mask].sort_values("State of Charge / 1")
         try:
-            results = fit_chunk(
+            res = fit_chunk(
                 time,
                 current,
                 voltage,
-                soc=soc[start:end],
-                ocv=pybamm.Interpolant(
-                    df["State of Charge / 1"].values,
-                    df["Open-circuit voltage [V]"].values,
-                    [pybamm.Variable("SoC")],
-                ),
-                Tau1=pybamm.Interpolant(
-                    df["State of Charge / 1"].values,
-                    df["Tau1 [s]"].values,
-                    [pybamm.Variable("SoC")],
-                ),
-                Tau2=pybamm.Interpolant(
-                    df["State of Charge / 1"].values,
-                    df["Tau2 [s]"].values,
-                    [pybamm.Variable("SoC")],
-                ),
             )
-            results["Step index / 1"] = i + 1
-            results["State of Charge / 1"] = soc[start:end].mean()
-            results["Mode"] = mode
-            save_resistances(results)
+            res["State of Charge / 1"] = soc[start:end].mean()
+            res["Mode"] = mode
+            results.append(res)
         except Exception as e:
-            tqdm.tqdm.write(f"Failed to fit step {i + 1} with error: {e}")
-    return results
+            tqdm.tqdm.write(f"Failed to fit step {i} with error: {e}")
+    pd.DataFrame(results).to_csv(
+        pathlib.Path(__file__).resolve().parent.joinpath("data/parameters.csv"),
+        index=False,
+    )
 
 
 if __name__ == "__main__":
     from utils import load_gitt
 
-    # wipe_tau_ocv()
-    wipe_resistances()
     data = load_gitt()
-    # fit_timeconstants(data)
-    fit_resistances(data)
+    fit_chunks(data)

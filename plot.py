@@ -1,10 +1,48 @@
+import pathlib
+
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 from utils import load_parameters, make_splines
 
 
 def circuit():
+    path = (
+        pathlib.Path(__file__)
+        .resolve()
+        .parent.joinpath("data")
+        .joinpath("parameters.csv")
+    )
+    param = pd.read_csv(path)
+    x_col = "State of Charge / 1"
+    y_cols = [
+        "Open-circuit voltage [V]",
+        "R0 [Ohm]",
+        "R1 [Ohm]",
+        "R2 [Ohm]",
+        "Tau1 [s]",
+        "Tau2 [s]",
+    ]
+    fig, ax = plt.subplots(1, 6, figsize=(25, 3), constrained_layout=True)
+    for i, y_col in enumerate(y_cols):
+        for mode in ["Charge", "Discharge"]:
+            mask = param["Mode"] == mode
+            df = param.loc[mask, [x_col, y_col]]
+            x = df[x_col].values
+            y = df[y_col].values
+            (_line,) = ax[i].plot(
+                x,
+                y,
+                ls="none",
+                marker="o",
+                mfc="w",
+            )
+    plt.show()
+    return
+
+
+def _circuit():
     param = load_parameters()
     mask = param["Step index / 1"] > 3
     param = param.loc[mask]

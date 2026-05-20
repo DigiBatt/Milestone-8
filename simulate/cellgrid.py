@@ -1,9 +1,10 @@
 import logging
+import pathlib
 from typing import Callable
 
 import numpy as np
+import pandas as pd
 
-from ..utils import load_parameters
 from .interpolant import Interpolant, InterpolationKind
 
 logger = logging.getLogger(__name__)
@@ -14,7 +15,7 @@ class CellGrid:
         self,
         n_parallel: int,
         n_series: int,
-        interpolants: dict[str, InterpolationKind] | None = None,
+        interpolants: dict[str, str | InterpolationKind] | None = None,
         interpolants_options: dict[str, dict] | None = None,
         parameters: dict | None = None,
     ):
@@ -62,11 +63,14 @@ class CellGrid:
             interpolants_options = {}
         for key in keys:
             interpolants.setdefault(key, InterpolationKind.LUT)
+            if isinstance(interpolants[key], str):
+                interpolants[key] = InterpolationKind(interpolants[key])
             interpolants_options.setdefault(key, {})
             if isinstance(interpolants[key], str):
                 interpolants[key] = InterpolationKind(interpolants[key])
 
-        param = load_parameters()
+        path = pathlib.Path(__file__).parent.parent / "data/parameters.csv"
+        param = pd.read_csv(path)
         interpolators = {}
         for key in keys:
             interpolators[key] = {}
