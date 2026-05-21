@@ -30,9 +30,10 @@ class Interpolant:
             InterpolationKind.CONSTANT: self._make_constant,
         }
 
+        sorted_indices = np.argsort(x)
         self._kind = kind
-        self._x = x
-        self._y = y
+        self._x = x[sorted_indices]
+        self._y = y[sorted_indices]
         self._options = options
         self._interpolator = _DISPATCH[self._kind]()
 

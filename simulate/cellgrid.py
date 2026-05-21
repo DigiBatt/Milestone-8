@@ -202,13 +202,13 @@ class CellGrid:
         dSOC = current / self.parameters["Nominal capacity / Ah"] / self.SOH / 3600
         dPOL1 = (current * R1 - pol1) / Tau1
         dPOL2 = (current * R2 - pol2) / Tau2
-        dhyst = (
-            np.abs(np.sign(current))
-            * (np.sign(current) - hyst)
-            / (self.parameters["Hysteresis soc-constant / %"] / 100)
+        tH = self.parameters["Hysteresis soc-constant / %"] / 100
+        dhystdSOC = (
+            np.abs(np.sign(current)) * np.sign(current) * (np.sign(current) - hyst) / tH
         )
+        dhyst = dhystdSOC * dSOC
 
-        return np.stack([dSOC, dPOL1, dPOL2, dhyst * dSOC], axis=0)
+        return np.stack([dSOC, dPOL1, dPOL2, dhyst], axis=0)
 
     def voltage(self, states: np.ndarray, current: np.ndarray) -> np.ndarray:
         x = self.split_x(states)

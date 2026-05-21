@@ -21,7 +21,7 @@ class SimulationResults:
         self.cell_pol1 = np.array([s["Element-1 overpotential / V"] for s in states])
         self.cell_pol2 = np.array([s["Element-2 overpotential / V"] for s in states])
         self.cell_hyst = np.array([s["Hysteresis / 1"] for s in states])
-        self.cell_voltage = np.array(self.y).flatten()
+        self.cell_voltage = np.array(self.y)
 
         variabels = [self.module.split_z(z) for z in self.z]
         self.cell_current = np.array([v["Cell current / A"] for v in variabels])
@@ -70,8 +70,9 @@ def cycle(
     n_cycles: int = 2,
     dod: float = 0.8,
 ) -> SimulationResults:
-    t_charge = int(module.nominal_capacity / c_charge * 3600 * dod)
-    t_discharge = int(module.nominal_capacity / c_discharge * 3600 * dod)
+
+    t_charge = int(dod / c_charge * 3600)
+    t_discharge = int(dod / c_discharge * 3600)
     u_rest = np.zeros(t_rest)
     u_charge = np.ones(t_charge) * c_charge * module.nominal_capacity
     u_discharge = -np.ones(t_discharge) * c_discharge * module.nominal_capacity
