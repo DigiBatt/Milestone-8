@@ -1,3 +1,4 @@
+import concurrent.futures
 import pathlib
 
 import bdat
@@ -44,30 +45,43 @@ def fit_chunk(
 
     if ocv is None:
         param_fit["Open-circuit voltage [V]"] = pybop.Parameter(
-            initial_value=3.7, bounds=[2.5, 4.2]
+            distribution=pybop.Uniform(2.5, 4.2),
+            initial_value=voltage.mean(),
         )
     else:
         param_const["Open-circuit voltage [V]"] = ocv
 
     if R0 is None:
-        param_fit["R0 [Ohm]"] = pybop.Parameter(initial_value=1e-2, bounds=[1e-4, 1])
+        param_fit["R0 [Ohm]"] = pybop.Parameter(
+            distribution=pybop.LogUniform(1e-4, 1),
+            initial_value=1e-2,
+            transformation=pybop.LogTransformation(),
+        )
     else:
         param_const["R0 [Ohm]"] = R0
 
     if R1 is None:
-        param_fit["R1 [Ohm]"] = pybop.Parameter(initial_value=1e-2, bounds=[1e-4, 1])
+        param_fit["R1 [Ohm]"] = pybop.Parameter(
+            distribution=pybop.LogUniform(1e-4, 1),
+            initial_value=1e-2,
+            transformation=pybop.LogTransformation(),
+        )
     else:
         param_const["R1 [Ohm]"] = R1
 
     if R2 is None:
-        param_fit["R2 [Ohm]"] = pybop.Parameter(initial_value=1e-2, bounds=[1e-4, 1])
+        param_fit["R2 [Ohm]"] = pybop.Parameter(
+            distribution=pybop.LogUniform(1e-4, 1),
+            initial_value=1e-2,
+            transformation=pybop.LogTransformation(),
+        )
     else:
         param_const["R2 [Ohm]"] = R2
 
     if Tau1 is None:
         param_fit["Tau1 [s]"] = pybop.Parameter(
+            distribution=pybop.LogUniform(2, int(24 * 3600)),
             initial_value=100,
-            bounds=[2, 10**5],
             transformation=pybop.LogTransformation(),
         )
     else:
@@ -75,8 +89,8 @@ def fit_chunk(
 
     if Tau2 is None:
         param_fit["Tau2 [s]"] = pybop.Parameter(
+            distribution=pybop.LogUniform(2, int(24 * 3600)),
             initial_value=1000,
-            bounds=[2, 10**5],
             transformation=pybop.LogTransformation(),
         )
     else:
@@ -106,18 +120,20 @@ def fit_chunk(
 
     options = pybop.SciPyMinimizeOptions(
         method="trust-constr",
-        multistart=10,
-        # maxiter=100,
+        multistart=50,
+        # maxiter=1000,
         constraints=constraints,
     )
     optimizer = pybop.SciPyMinimize(problem, options=options)
 
-    tqdm.tqdm.write("Starting optimizer with parameters ...")
-    for key, value in param.items():
-        tqdm.tqdm.write(f"{key}: {value}")
-    tqdm.tqdm.write("\n")
     results = optimizer.run()
-    return {**results.best_inputs, "cost": results.best_cost}
+    return {
+        **{
+            key.replace(" [", " / ").replace("]", ""): value
+            for key, value in results.best_inputs.items()
+        },
+        "cost": results.best_cost,
+    }
 
 
 def fit_chunks(data: bdat.CyclingData):
@@ -127,55 +143,64 @@ def fit_chunks(data: bdat.CyclingData):
     results = []
 
     q = integrate.cumulative_trapezoid(data.current, data.time, initial=0)
-    soc = (q - q.min()) / (q.max() - q.min())
+    soc_all = (q - q.min()) / (q.max() - q.min())
     steps = list(bdat.steps.find_steps(data))
 
-    for i, step in enumerate(tqdm.tqdm(steps, desc="Fitting steps")):
-        if step.charge != 0 or (i == 0):
-            continue
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        futures = {}
+        for i, step in enumerate(tqdm.tqdm(steps, desc="Submitting jobs")):
+            if step.charge != 0 or (i == 0):
+                continue
 
-        if steps[i - 1].charge == 0:
-            continue
+            if steps[i - 1].charge == 0:
+                continue
 
-        if steps[i - 1].charge > 0:
-            mode = "Charge"
+            if steps[i - 1].charge > 0:
+                mode = "Charge"
 
-        elif steps[i - 1].charge < 0:
-            mode = "Discharge"
-        else:
-            mode = "Unknown"
+            elif steps[i - 1].charge < 0:
+                mode = "Discharge"
+            else:
+                mode = "Unknown"
 
-        # 10 second back from pulse start
-        start = np.abs(data.time - (steps[i - 1].start - 10)).argmin()
+            # 10 second back from pulse start
+            start = np.abs(data.time - (steps[i - 1].start - 10)).argmin()
 
-        # Last is last
-        if i == len(steps) - 1:
-            end = step.rowEnd
-        # 10 seconds into next pulse if it's different sign
-        elif np.sign(steps[i - 1].charge) != np.sign(steps[i + 1].charge):
-            end = np.abs(data.time - (step.end + 10)).argmin()
-        # All of next pulse of same sign
-        elif np.sign(steps[i - 1].charge) == np.sign(steps[i + 1].charge):
-            end = np.abs(data.time - (steps[i + 1].end)).argmin()
+            # Last is last
+            if i == len(steps) - 1:
+                end = step.rowEnd
+            # 10 seconds into next pulse if it's different sign
+            elif np.sign(steps[i - 1].charge) != np.sign(steps[i + 1].charge):
+                end = np.abs(data.time - (step.end + 10)).argmin()
+            # All of next pulse of same sign
+            elif np.sign(steps[i - 1].charge) == np.sign(steps[i + 1].charge):
+                end = np.abs(data.time - (steps[i + 1].end)).argmin()
 
-        else:
-            raise ValueError(f"Unexpected step pattern at step {i}")
+            else:
+                raise ValueError(f"Unexpected step pattern at step {i}")
 
-        time = data.time[start:end]
-        voltage = data.voltage[start:end]
-        current = data.current[start:end]
-
-        try:
-            res = fit_chunk(
-                time,
-                current,
-                voltage,
+            time = data.time[start:end]
+            voltage = data.voltage[start:end]
+            current = data.current[start:end]
+            futures[executor.submit(fit_chunk, time, current, voltage)] = (
+                soc_all[start:end].mean(),
+                mode,
             )
-            res["State of Charge / 1"] = soc[start:end].mean()
-            res["Mode"] = mode
-            results.append(res)
-        except Exception as e:
-            tqdm.tqdm.write(f"Failed to fit step {i} with error: {e}")
+        for future in tqdm.tqdm(
+            concurrent.futures.as_completed(futures),
+            total=len(futures),
+            desc="Collecting results",
+        ):
+            try:
+                soc, mode = futures[future]
+                res = future.result()
+                res["State of Charge / 1"] = soc
+                res["Mode"] = mode
+                results.append(res)
+            except Exception as e:
+                tqdm.tqdm.write(f"Failed to get future result with error: {e}")
+                continue
+
     pd.DataFrame(results).to_csv(
         pathlib.Path(__file__).resolve().parent.joinpath("data/parameters.csv"),
         index=False,

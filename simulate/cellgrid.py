@@ -49,12 +49,12 @@ class CellGrid:
         _interp = {}
         _opts = {}
         keys = [
-            "Open-circuit voltage [V]",
-            "R0 [Ohm]",
-            "R1 [Ohm]",
-            "R2 [Ohm]",
-            "Tau1 [s]",
-            "Tau2 [s]",
+            "Open-circuit voltage / V",
+            "R0 / Ohm",
+            "R1 / Ohm",
+            "R2 / Ohm",
+            "Tau1 / s",
+            "Tau2 / s",
         ]
 
         if interpolants is None:
@@ -70,7 +70,7 @@ class CellGrid:
                 interpolants[key] = InterpolationKind(interpolants[key])
 
         path = pathlib.Path(__file__).parent.parent / "data/parameters.csv"
-        param = pd.read_csv(path)
+        param = pd.read_csv(path).drop_duplicates()
         interpolators = {}
         for key in keys:
             interpolators[key] = {}
@@ -80,7 +80,7 @@ class CellGrid:
                 y = param.loc[mask, key].values
 
                 interpolators[key][mode] = Interpolant(
-                    x, y, kind=interpolants[key], **interpolants_options[key]
+                    x, y, kind=interpolants[key], options=interpolants_options[key]
                 )
         self._interpolators = interpolators
         return
@@ -169,32 +169,32 @@ class CellGrid:
         R1 = (
             self.hmix(
                 hyst,
-                self.interpolators["R1 [Ohm]"]["Charge"](soc),
-                self.interpolators["R1 [Ohm]"]["Discharge"](soc),
+                self.interpolators["R1 / Ohm"]["Charge"](soc),
+                self.interpolators["R1 / Ohm"]["Discharge"](soc),
             )
             * self.SOR
         )
         R2 = (
             self.hmix(
                 hyst,
-                self.interpolators["R2 [Ohm]"]["Charge"](soc),
-                self.interpolators["R2 [Ohm]"]["Discharge"](soc),
+                self.interpolators["R2 / Ohm"]["Charge"](soc),
+                self.interpolators["R2 / Ohm"]["Discharge"](soc),
             )
             * self.SOR
         )
         Tau1 = (
             self.hmix(
                 hyst,
-                self.interpolators["Tau1 [s]"]["Charge"](soc),
-                self.interpolators["Tau1 [s]"]["Discharge"](soc),
+                self.interpolators["Tau1 / s"]["Charge"](soc),
+                self.interpolators["Tau1 / s"]["Discharge"](soc),
             )
             * self.SOR
         )
         Tau2 = (
             self.hmix(
                 hyst,
-                self.interpolators["Tau2 [s]"]["Charge"](soc),
-                self.interpolators["Tau2 [s]"]["Discharge"](soc),
+                self.interpolators["Tau2 / s"]["Charge"](soc),
+                self.interpolators["Tau2 / s"]["Discharge"](soc),
             )
             * self.SOR
         )
@@ -218,14 +218,14 @@ class CellGrid:
         hyst = x["Hysteresis / 1"]
         ocv = self.hmix(
             hyst,
-            self.interpolators["Open-circuit voltage [V]"]["Charge"](soc),
-            self.interpolators["Open-circuit voltage [V]"]["Discharge"](soc),
+            self.interpolators["Open-circuit voltage / V"]["Charge"](soc),
+            self.interpolators["Open-circuit voltage / V"]["Discharge"](soc),
         )
         R0 = (
             self.hmix(
                 hyst,
-                self.interpolators["R0 [Ohm]"]["Charge"](soc),
-                self.interpolators["R0 [Ohm]"]["Discharge"](soc),
+                self.interpolators["R0 / Ohm"]["Charge"](soc),
+                self.interpolators["R0 / Ohm"]["Discharge"](soc),
             )
             * self.SOR
         )

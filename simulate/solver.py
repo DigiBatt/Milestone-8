@@ -41,8 +41,8 @@ def jacobian(
 def newton(
     fun: Callable,
     x0: np.ndarray,
-    tol: float = 1e-8,
-    maxiter: int = 100,
+    tol: float = 1e-6,
+    maxiter: int = 10,
     eps: float | None = None,
     sparse: bool = False,
     args: tuple | None = None,
