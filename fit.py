@@ -15,14 +15,14 @@ def fit_chunk(
     time: np.ndarray,
     current: np.ndarray,
     voltage: np.ndarray,
-    ocv: float | pybamm.Interpolant | None = None,
-    R0: float | pybamm.Interpolant | None = None,
-    R1: float | pybamm.Interpolant | None = None,
-    R2: float | pybamm.Interpolant | None = None,
-    Tau1: float | pybamm.Interpolant | None = None,
-    Tau2: float | pybamm.Interpolant | None = None,
+    number_of_rc_elements: int = 2,
+    constants: dict | None = None,
 ):
-    model = pybamm.equivalent_circuit.Thevenin(options={"number of rc elements": 2})
+    model = pybamm.equivalent_circuit.Thevenin(
+        options={"number of rc elements": number_of_rc_elements}
+    )
+    if constants is None:
+        constants = {}
     param = model.default_parameter_values
     param_const = {
         "Entropic change [V/K]": 0,
@@ -30,71 +30,53 @@ def fit_chunk(
         "Lower voltage cut-off [V]": 2.0,
         "Cell capacity [A.h]": 5,
         "Nominal cell capacity [A.h]": 5,
-        "C1 [F]": pybamm.Parameter("Tau1 [s]") / pybamm.Parameter("R1 [Ohm]"),
-        "C2 [F]": pybamm.Parameter("Tau2 [s]") / pybamm.Parameter("R2 [Ohm]"),
     }
-
-    param_fit = {
-        "Element-1 initial overpotential [V]": pybop.Parameter(
-            initial_value=0, bounds=[-1, 1]
-        ),
-        "Element-2 initial overpotential [V]": pybop.Parameter(
-            initial_value=0, bounds=[-1, 1]
-        ),
-    }
-
-    if ocv is None:
+    param_fit = {}
+    if "Open-circuit voltage / V" in constants:
+        param_const["Open-circuit voltage [V]"] = constants["Open-circuit voltage / V"]
+    else:
         param_fit["Open-circuit voltage [V]"] = pybop.Parameter(
             distribution=pybop.Uniform(2.5, 4.2),
             initial_value=voltage.mean(),
         )
+    if "R0 / Ohm" in constants:
+        param_const["R0 [Ohm]"] = constants["R0 / Ohm"]
     else:
-        param_const["Open-circuit voltage [V]"] = ocv
-
-    if R0 is None:
         param_fit["R0 [Ohm]"] = pybop.Parameter(
-            distribution=pybop.LogUniform(1e-4, 1),
+            distribution=pybop.LogUniform(1e-3, 1e-1),
             initial_value=1e-2,
             transformation=pybop.LogTransformation(),
         )
-    else:
-        param_const["R0 [Ohm]"] = R0
 
-    if R1 is None:
-        param_fit["R1 [Ohm]"] = pybop.Parameter(
-            distribution=pybop.LogUniform(1e-4, 1),
-            initial_value=1e-2,
-            transformation=pybop.LogTransformation(),
-        )
-    else:
-        param_const["R1 [Ohm]"] = R1
-
-    if R2 is None:
-        param_fit["R2 [Ohm]"] = pybop.Parameter(
-            distribution=pybop.LogUniform(1e-4, 1),
-            initial_value=1e-2,
-            transformation=pybop.LogTransformation(),
-        )
-    else:
-        param_const["R2 [Ohm]"] = R2
-
-    if Tau1 is None:
-        param_fit["Tau1 [s]"] = pybop.Parameter(
-            distribution=pybop.LogUniform(2, int(24 * 3600)),
-            initial_value=100,
-            transformation=pybop.LogTransformation(),
-        )
-    else:
-        param_const["Tau1 [s]"] = Tau1
-
-    if Tau2 is None:
-        param_fit["Tau2 [s]"] = pybop.Parameter(
-            distribution=pybop.LogUniform(2, int(24 * 3600)),
-            initial_value=1000,
-            transformation=pybop.LogTransformation(),
-        )
-    else:
-        param_const["Tau2 [s]"] = Tau2
+    for i in range(1, number_of_rc_elements + 1):
+        param_const[f"C{i} [F]"] = pybamm.Parameter(f"Tau{i} [s]") / pybamm.Parameter(
+            f"R{i} [Ohm]"
+        )  # ty:ignore[invalid-assignment]
+        if f"R{i} / Ohm" in constants:
+            param_const[f"R{i} [Ohm]"] = constants[f"R{i} / Ohm"]
+        else:
+            param_fit[f"R{i} [Ohm]"] = pybop.Parameter(
+                distribution=pybop.LogUniform(1e-3, 1e-1),
+                initial_value=1e-2,
+                transformation=pybop.LogTransformation(),
+            )
+        if f"Tau{i} / s" in constants:
+            param_const[f"Tau{i} [s]"] = constants[f"Tau{i} / s"]
+        else:
+            param_fit[f"Tau{i} [s]"] = pybop.Parameter(
+                distribution=pybop.LogUniform(2, 10 ** (i + 2)),
+                initial_value=(10 ** (i + 1)),
+                transformation=pybop.LogTransformation(),
+            )
+        if f"Element-{i} initial overpotential [V]" in constants:
+            param_const[f"Element-{i} initial overpotential [V]"] = constants[
+                f"Element-{i} initial overpotential [V]"
+            ]
+        else:
+            param_fit[f"Element-{i} initial overpotential [V]"] = pybop.Parameter(
+                distribution=pybop.Uniform(-1, 1),
+                initial_value=0,
+            )
 
     param.update(param_const)
     param.update(param_fit)
@@ -105,22 +87,23 @@ def fit_chunk(
     simulator = pybop.pybamm.Simulator(model, protocol=dataset, parameter_values=param)
     problem = pybop.Problem(simulator, cost)
 
-    # Time constant constraints: Tau1 <= Tau2 <= ... <= TauN
-    if ("Tau1 [s]" in param_fit) and ("Tau2 [s]" in param_fit):
+    if number_of_rc_elements >= 2:
         keys = list(problem.parameters.keys())
         nparams = len(keys)
-        A = np.zeros((1, nparams))
-        idx = keys.index("Tau1 [s]")
-        jdx = keys.index("Tau2 [s]")
-        A[0, jdx] = 1.0
-        A[0, idx] = -1.0
+        A = np.zeros((number_of_rc_elements - 1, nparams))
+        for i in range(1, number_of_rc_elements):
+            j = i + 1
+            idx = keys.index(f"Tau{i} [s]")
+            jdx = keys.index(f"Tau{j} [s]")
+            A[i - 1, jdx] = 1.0
+            A[i - 1, idx] = -1.0
         constraints = [optimize.LinearConstraint(A, lb=0, ub=np.inf)]
     else:
         constraints = None
 
     options = pybop.SciPyMinimizeOptions(
         method="trust-constr",
-        multistart=50,
+        multistart=30,
         # maxiter=1000,
         constraints=constraints,
     )
@@ -136,7 +119,7 @@ def fit_chunk(
     }
 
 
-def fit_chunks(data: bdat.CyclingData):
+def fit_chunks(data: bdat.CyclingData, number_of_rc_elements: int = 2):
     """
     Fits all
     """
@@ -146,6 +129,9 @@ def fit_chunks(data: bdat.CyclingData):
     soc_all = (q - q.min()) / (q.max() - q.min())
     steps = list(bdat.steps.find_steps(data))
 
+    constants = {
+        # "Tau1 / s": 60,
+    }
     with concurrent.futures.ProcessPoolExecutor() as executor:
         futures = {}
         for i, step in enumerate(tqdm.tqdm(steps, desc="Submitting jobs")):
@@ -182,7 +168,16 @@ def fit_chunks(data: bdat.CyclingData):
             time = data.time[start:end]
             voltage = data.voltage[start:end]
             current = data.current[start:end]
-            futures[executor.submit(fit_chunk, time, current, voltage)] = (
+            futures[
+                executor.submit(
+                    fit_chunk,
+                    time,
+                    current,
+                    voltage,
+                    number_of_rc_elements=number_of_rc_elements,
+                    constants=constants,
+                )
+            ] = (
                 soc_all[start:end].mean(),
                 mode,
             )
@@ -196,13 +191,16 @@ def fit_chunks(data: bdat.CyclingData):
                 res = future.result()
                 res["State of Charge / 1"] = soc
                 res["Mode"] = mode
-                results.append(res)
+                res.update(constants)
+                results.append({**res, **constants})
             except Exception as e:
                 tqdm.tqdm.write(f"Failed to get future result with error: {e}")
                 continue
 
     pd.DataFrame(results).to_csv(
-        pathlib.Path(__file__).resolve().parent.joinpath("data/parameters.csv"),
+        pathlib.Path(__file__)
+        .resolve()
+        .parent.joinpath(f"data/parameters_{number_of_rc_elements}.csv"),
         index=False,
     )
 
@@ -211,4 +209,5 @@ if __name__ == "__main__":
     from utils import load_gitt
 
     data = load_gitt()
-    fit_chunks(data)
+    for n in range(1, 4):
+        fit_chunks(data, number_of_rc_elements=n)

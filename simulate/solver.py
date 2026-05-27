@@ -1,8 +1,12 @@
+import logging
 from typing import Callable
 
 import numpy as np
-from scipy.sparse import csr_matrix
-from scipy.sparse.linalg import spsolve
+import scipy.sparse as sp
+import tqdm.auto as tqdm
+from scipy.sparse import csc_matrix
+
+logger = logging.getLogger(__name__)
 
 
 def jacobian(
@@ -12,7 +16,7 @@ def jacobian(
     sparse: bool = False,
     args: tuple | None = None,
     kwargs: dict | None = None,
-) -> np.ndarray | csr_matrix:
+) -> np.ndarray | csc_matrix:
     """
     Generic jacobian function using central difference finite differences.
     """
@@ -34,7 +38,7 @@ def jacobian(
         jac[:, i] = (u - d) / (2 * eps)
         h[i] = 0.0
     if sparse:
-        jac = csr_matrix(jac)
+        jac = csc_matrix(jac)
     return jac
 
 
@@ -45,29 +49,48 @@ def newton(
     maxiter: int = 10,
     eps: float | None = None,
     sparse: bool = False,
+    jac: np.ndarray | sp.csc_matrix | None = None,
     args: tuple | None = None,
     kwargs: dict | None = None,
 ) -> np.ndarray:
     """
     Generic newton's method for solving nonlinear equations.
     """
+    logger.debug(
+        f"Running newton's method with tol={tol}, maxiter={maxiter}, eps={eps}, sparse={sparse}"
+    )
     if args is None:
         args = ()
     if kwargs is None:
         kwargs = {}
     if sparse:
-        linsolve = spsolve
+        linsolve = sp.linalg.spsolve
     else:
         linsolve = np.linalg.solve
 
     b = fun(x0, *args, **kwargs)
     itr = 0
+
+    if jac is not None:
+        if sparse and isinstance(jac, np.ndarray):
+            jac = csc_matrix(jac)
+        elif (not sparse) and isinstance(jac, sp.csc_matrix):
+            jac = jac.toarray()
+
     while (np.linalg.norm(b) > tol) and (itr < maxiter):
-        J = jacobian(fun, x0, eps=eps, sparse=sparse, args=args, kwargs=kwargs)
-        dx = linsolve(J, -b)
+        if jac is None:
+            J = jacobian(fun, x0, eps=eps, sparse=sparse, args=args, kwargs=kwargs)
+        else:
+            J = jac
+        logger.debug(f"Iteration {itr}: norm of residual = {np.linalg.norm(b)}")
+        dx = linsolve(J, -b)  # ty:ignore[no-matching-overload]
         x0 = x0 + dx
         itr += 1
         b = fun(x0, *args, **kwargs)
+        
+    logger.debug(
+        f"Finished newton's method after {itr} iterations with residual {np.linalg.norm(b)}"
+    )
     return x0
 
 
@@ -103,8 +126,10 @@ class DAESolver:
         self._z0 = z0
         if newton_options is None:
             newton_options = {}
-        newton_options.setdefault("tol", 1e-8)
-        newton_options.setdefault("maxiter", 100)
+        newton_options.setdefault("tol", 1e-6)
+        newton_options.setdefault("maxiter", 10)
+        newton_options.setdefault("eps", None)
+        newton_options.setdefault("sparse", False)
         self._newton_options = newton_options
         return
 
@@ -141,6 +166,13 @@ class DAESolver:
         def wrapper(z_):
             return self.g(x, z_, u)
 
+        if self.newton_options.get("jac", None) is None:
+            self._newton_options["jac"] = jacobian(
+                wrapper,
+                z0,
+                eps=self.newton_options.get("eps", None),
+                sparse=self.newton_options.get("sparse", False),
+            )
         return newton(wrapper, z0, **self.newton_options)
 
     def solve(
@@ -151,6 +183,7 @@ class DAESolver:
         dt: float,
         calc_ic: bool = False,
     ) -> tuple[np.ndarray, np.ndarray]:
+        logger.debug(f"Solving DAE with calc_ic={calc_ic}")
         if calc_ic:
             z0 = self._solve_z(x0, z0, u)
         x = self._solve_x(x0, z0, u, dt)
@@ -167,8 +200,10 @@ class DAESolver:
         x = [x0]
         z = [z0]
         y = [self.h(x0, z0, u[0])]
-        for k, dt in enumerate(np.diff(t), start=1):
-            x0, z0 = self.solve(x0, z0, u[k], dt)
+        for k, dt in enumerate(
+            tqdm.tqdm(np.diff(t), desc="Integrating", unit="step"), start=1
+        ):
+            x0, z0 = self.solve(x0, z0, u[k], dt, calc_ic=(u[k] != u[k - 1]))
             x.append(x0)
             z.append(z0)
             y.append(self.h(x0, z0, u[k]))

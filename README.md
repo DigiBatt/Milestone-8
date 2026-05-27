@@ -38,3 +38,40 @@ Documentation of non-destructive cell parameterization and resulting model-based
 
 - `CellGrid` is a simple equivalent circuit model with 4 states; *SOC*, *Pol-1*, *Pol-2* and *Hysteresis*. Circuit elements $OCV$, $R_0$, $R_1$, $R_2$, $\tau_1$, and $\tau_2$ are obtained through the parametrization of the GITT. The circuit elements can be modelled using a lookup table,  a spline, or the average value. The `CellGrid` is vectorized to $n_\mathrm{series}$, $n_\mathrm{parallel}$ cells for plugging into a modulec model. 
 - `Module` handles the current- and potential distribution in the bussbar, and uses to previously mentioned `CellGrid` model to handle the battery cell dynamics.  
+
+## Further work
+
+### Physics-motivated equivalent circuit models
+
+#### Electrode level open circuit potential
+$$
+OCV\left(SOC, \theta\right) = OCP^{PE}\left(SOC, \theta_{1}^{PE}, \theta_{0}^{PE}\right) - OCP^{NE}\left(SOC, \theta_{1}^{NE}, \theta_{0}^{NE}\right)
+$$
+
+where, for composite electrodes
+
+$$
+I_{tot} = \sum_{i=1}^{n} J_{i} \\
+U_{1} = U_{2} \\
+\vdots \\
+U_{n-1} = U_{n}  
+$$
+
+$^\ast$ Should we enforce the electrode voltage or potential?
+
+#### Charge transfer resistance
+Somthing like
+
+$$
+R_{ct} \propto \frac{1}{STO^{\alpha}\left(1-STO\right)^{1-\alpha}} \\
+\tau_{ct} \approx C_{cl} \times R_{ct}
+$$
+
+#### Diffusion resistance
+Someting like 
+
+$$
+\tau_{D} \approx \frac{l^{2}_{D}}{D}
+$$
+
+where I guess the resistance is time- and current dependent. 

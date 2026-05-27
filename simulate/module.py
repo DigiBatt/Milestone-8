@@ -16,6 +16,7 @@ class Module:
         n_parallel: int,
         n_series: int,
         interpolants: dict[str, str | InterpolationKind] | None = None,
+        number_of_rc_elements: int = 2,
         interpolants_options: dict[str, dict] | None = None,
         cell_parameters: dict | None = None,
         bussbar_parameters: dict | None = None,
@@ -27,6 +28,7 @@ class Module:
             interpolants=interpolants,
             interpolants_options=interpolants_options,
             parameters=cell_parameters,
+            number_of_rc_elements=number_of_rc_elements,
         )
         if bussbar_parameters is None:
             bussbar_parameters = {}
@@ -50,15 +52,15 @@ class Module:
         R_pos = bussbar_parameters["Positive terminal resistance / Ohm"] * d_p
         R_neg = bussbar_parameters["Negative terminal resistance / Ohm"] * d_n
 
-        R_ser = np.random.lognormal(
-            mean=np.log(bussbar_parameters["Mean series resistance / Ohm"]),
-            sigma=bussbar_parameters["Std series resistance / Ohm"],
+        R_ser = np.random.normal(
+            loc=bussbar_parameters["Mean series resistance / Ohm"],
+            scale=bussbar_parameters["Std series resistance / Ohm"],
             size=(n_series, n_parallel),
         )
 
-        R_par = np.random.lognormal(
-            mean=np.log(bussbar_parameters["Mean parallel resistance / Ohm"]),
-            sigma=bussbar_parameters["Std parallel resistance / Ohm"],
+        R_par = np.random.normal(
+            loc=bussbar_parameters["Mean parallel resistance / Ohm"],
+            scale=bussbar_parameters["Std parallel resistance / Ohm"],
             size=(n_series + 1, n_parallel - 1),
         )
 
@@ -96,6 +98,10 @@ class Module:
     @property
     def bussbar_parameters(self) -> dict:
         return self._parameters
+
+    @property
+    def number_of_rc_elements(self) -> int:
+        return self.cellgrid.number_of_rc_elements
 
     @property
     def series_resistance(self) -> np.ndarray:

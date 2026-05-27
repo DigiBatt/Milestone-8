@@ -15,34 +15,60 @@ class SimulationResults:
     z: list[np.ndarray]
     y: list[np.ndarray]
 
-    def __post_init__(self):
-        states = [self.module.split_x(x) for x in self.x]
-        self.cell_soc = np.array([s["State of Charge / 1"] for s in states])
-        self.cell_pol1 = np.array([s["Element-1 overpotential / V"] for s in states])
-        self.cell_pol2 = np.array([s["Element-2 overpotential / V"] for s in states])
-        self.cell_hyst = np.array([s["Hysteresis / 1"] for s in states])
-        self.cell_voltage = np.array(self.y)
+    @property
+    def states(self):
+        keys = ["State of Charge / 1", "Hysteresis / 1"]
+        for i in range(1, self.module.cellgrid.number_of_rc_elements + 1):
+            keys.append(f"Element-{i} overpotential / V")
+        states = {key: [] for key in keys}
+        for row in self.x:
+            for name, state in self.module.split_x(row).items():
+                states[name].append(state)
 
-        variabels = [self.module.split_z(z) for z in self.z]
-        self.cell_current = np.array([v["Cell current / A"] for v in variabels])
+        return {key: np.array(value) for key, value in states.items()}
 
-        self.module_current = self.u
-        self.module_soc = (
-            self.cell_soc.sum(axis=1).sum(axis=1)
-            / self.module.n_series
-            / self.module.n_parallel
+    @property
+    def variables(self):
+        keys = self.module.split_z(self.z[0]).keys()
+        variables = {key: [] for key in keys}
+        for row in self.z:
+            for name, var in self.module.split_z(row).items():
+                variables[name].append(var)
+        return {key: np.array(value) for key, value in variables.items()}
+
+    @property
+    def cell_soc(self):
+        return self.states["State of Charge / 1"]
+
+    @property
+    def cell_voltage(self):
+        return np.array(self.y)
+
+    @property
+    def cell_current(self):
+        return self.variables["Cell current / A"]
+
+    @property
+    def module_voltage(self):
+        return (
+            self.variables["Positive terminal potential / V"]
+            - self.variables["Negative terminal potential / V"]
         )
-        self.module_voltage = np.array(
-            [
-                v["Positive terminal potential / V"]
-                - v["Negative terminal potential / V"]
-                for v in variabels
-            ]
-        )
+
+    @property
+    def module_current(self):
+        return self.u
 
 
-def dcir(module: Module) -> SimulationResults:
-    solver = DAESolver(module.ode, module.alg, module.obs, module.x0, module.z0)
+def dcir(module: Module, newton_options: dict | None = None) -> SimulationResults:
+    solver = DAESolver(
+        module.ode,
+        module.alg,
+        module.obs,
+        module.x0,
+        module.z0,
+        newton_options=newton_options,
+    )
 
     u_rest = np.zeros(30)
     u_pulse = np.ones(10)
@@ -69,19 +95,28 @@ def cycle(
     c_discharge: float = 1.0,
     n_cycles: int = 2,
     dod: float = 0.8,
+    dt: int = 1,
+    newton_options: dict | None = None,
 ) -> SimulationResults:
 
-    t_charge = int(dod / c_charge * 3600)
-    t_discharge = int(dod / c_discharge * 3600)
-    u_rest = np.zeros(t_rest)
+    t_charge = int(dod / c_charge * 3600 / dt)
+    t_discharge = int(dod / c_discharge * 3600 / dt)
+    u_rest = np.zeros(t_rest // dt)
     u_charge = np.ones(t_charge) * c_charge * module.nominal_capacity
     u_discharge = -np.ones(t_discharge) * c_discharge * module.nominal_capacity
     u_steps = [u_rest]
     for _ in range(n_cycles):
         u_steps.extend([u_charge, u_rest, u_discharge, u_rest])
     u = np.hstack(u_steps)
-    t = np.arange(u.size)
-    solver = DAESolver(module.ode, module.alg, module.obs, module.x0, module.z0)
+    t = np.arange(u.size) * dt
+    solver = DAESolver(
+        module.ode,
+        module.alg,
+        module.obs,
+        module.x0,
+        module.z0,
+        newton_options=newton_options,
+    )
     return SimulationResults(module, t, u, *solver.integrate(t, u))
 
 

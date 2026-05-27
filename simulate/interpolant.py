@@ -36,6 +36,15 @@ class Interpolant:
         self._y = y[sorted_indices]
         self._options = options
         self._interpolator = _DISPATCH[self._kind]()
+        return
+
+    @property
+    def x(self) -> np.ndarray:
+        return self._x
+
+    @property
+    def y(self) -> np.ndarray:
+        return self._y
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
         return self._interpolator(x)

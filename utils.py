@@ -4,7 +4,7 @@ import bdat
 import pandas as pd
 
 
-def load_gitt():
+def load_gitt() -> bdat.CyclingData:
     """
     Reads the GITT data from the DigiBatt CG50 battery and returns a bdat CyclingData object.
     """
@@ -29,8 +29,13 @@ def load_gitt():
     batterytype = bdat.BatterySpecies(
         "BAK CG50", capacity=5.0, endOfChargeVoltage=4.2, endOfDischargeVoltage=2.5
     )
-    battery = bdat.Battery("DigiBatt_CG50_1072", type=batterytype)
+    battery = bdat.Battery("DigiBatt-CG50-006", type=batterytype)
     cycling = bdat.Cycling("GITT", object=battery)
 
     dataspec = bdat.get_dataspec(cycling, data)
     return bdat.CyclingData(cycling, data, dataspec)
+
+
+def load_parameters(n: int):
+    path = pathlib.Path(__file__).parent / "data" / f"parameters_{n}.csv"
+    return pd.read_csv(path).drop_duplicates()
