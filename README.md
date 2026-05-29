@@ -2,7 +2,7 @@
 ## Documentation of non-destructive cell parameterization and resulting model-based simulation results.
 
 This repository aims at leveraging the tools developed in DigiBatt to extract equivalent circuit parameters from data generated in the project.\
-The resulting equivalent curcuit model is used to demonstrate module level simulations. \
+The resulting equivalent curcuit model is used to demonstrate module level simulations.
 
 - Timeseries measurements from Galvanostatic Intermittent Titration Technique (GITT) performed by DLR is included in `/data/DigiBatt-BAK-5000-N21700CG-006-GITT-data.parquet`.
 - bdat (https://digibatt.github.io/bdat/) was used to wrap the the provided GITT measurements and segment the data into steps.
@@ -19,10 +19,11 @@ The resulting equivalent curcuit model is used to demonstrate module level simul
     - `dcir()` runs a DCIR simulation and returns a convenient `SimulationResults` object.
     - `cycle()` runs a simple cycling simulation and returns a convenient `SimulationResults` object.
 - `/figures/` stores any figures generated.  
+- The notebooks `sim_cycle` and `sim_dcir` demonstrates some simulations and graphs.
 
 ### Simulation models
-`CellGrid` is a simple equivalent circuit model with $n+n$ states; *SOC*, *Hyst* and $n$ $R-C$ polarization branches.
-Circuit elements $OCV$, $R_0$, $R_i$ and $\tau_i$ where $i=\left[1,2,...,n\right]$ $R_2$, $\tau_1$, and $\tau_2$ are obtained through the parametrization of the GITT. The circuit elements can be modelled using a lookup table,  a spline, or the average value. The `CellGrid` is vectorized to $n_\mathrm{series}$, $n_\mathrm{parallel}$ cells for plugging into a the module model. 
+`CellGrid` is a simple equivalent circuit model with $2+n$ states; *SOC*, *Hyst* and $n$ $R-C$ polarization branches.
+Circuit elements $OCV$, $R_0$, $R_i$ and $\tau_i$ $\left(i=\left[1,2,...,n\right]\right)$ were obtained through the parametrization of the GITT pulses. The circuit elements can be modelled using a lookup table,  a spline, or the average value. The `CellGrid` is vectorized to $n_\mathrm{series}$, $n_\mathrm{parallel}$ cells for plugging into a the module model.\
 `Module` Provides the expressions to simulate the current- and potential distribution in a bussbar, where the `CellGrid` contribute to the voltage difference between potential nodes in the main current path.
 `DAESolver` solves the simulation problem on the form
   $$\frac{\partial x}{\partial t} = f\left(x,z,u\right)$$
@@ -30,7 +31,7 @@ Circuit elements $OCV$, $R_0$, $R_i$ and $\tau_i$ where $i=\left[1,2,...,n\right
   $$x_{k} = x_{k-1} + \Delta t \cdot f\left(x_{k-1},z_{k-1},u_{k-1}\right)$$
   $$z_{k} \rightarrow 0 = g\left(x_{k}, z_{k}, u_{k}\right)$$
 
-where $x$ is a matrix of the cell states, $z$ is a vector of currens and potentials in the bussbar and $u$ is the module current.  
+where $x$ is a matrix of the cell states, $z$ is a vector of currents and potentials in the bussbar and $u$ is the module current.  
 The model is set up to accept a mean and standard deviation of parameters such as cell SOH, cell SOR, bussbar series resistance, *etc.*
 
 ### Comment on results
@@ -57,11 +58,11 @@ U_{n-1} = U_{n}
 $$
 
 ### State- and parameter esimation
-With an initial model for $R_0$, $R_1$, *etc.* at beginning og life (BOL), the resistance models can be expressed more generically as 
+With an initial model for $R_0$, $R_1$, *etc.* at beginning of life (BOL), the resistance models can be expressed more generically as 
 
 $$
-R_i(SOC,\dots) = R_i^0(SOC,\dots) \cdot SOR
+R_i(SOC,\dots) = R_i^{BOL}(SOC,\dots) \cdot SOR
 $$
 
-where SOR is the average resistance, analogous to SOH for capacity decline. With an electrode-level OCP model, the total parameter-set for esimtation is then given as $p=\left[SOH, SOR, \theta_{1}^{NE}, \theta_{0}^{NE}, \theta_{1}^{PE}, \theta_{0}^{PE}\right]$ alongside the states $x=\left[SOC, H, U_1,\dots,U_n\right]$
+where SOR is the average resistance growth, analogous to SOH for capacity decline. With an electrode-level OCP model, the total parameter-set for esimtation is then given as $p=\left[SOH, SOR, \theta_{1}^{NE}, \theta_{0}^{NE}, \theta_{1}^{PE}, \theta_{0}^{PE}\right]$ alongside the states $x=\left[SOC, H, U_1,\dots,U_n\right]$. With the states and parameters changing on different timescales, their estimation must also be separated, using *e.g.* a Rao-Blackwellised particle filter. 
 
