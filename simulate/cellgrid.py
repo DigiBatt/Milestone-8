@@ -1,6 +1,5 @@
 import logging
 import pathlib
-from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -112,7 +111,7 @@ class CellGrid:
         return self.parameters["Nominal capacity / Ah"]
 
     @property
-    def interpolators(self) -> dict[str, dict[str, Callable]]:
+    def interpolators(self) -> dict[str, dict[str, Interpolant]]:
         return self._interpolators
 
     @property
