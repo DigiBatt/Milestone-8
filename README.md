@@ -52,10 +52,12 @@ $$
 which introduces a set of nonlinear equations for composite electrodes (*i.e.* silicon-graphite). 
 
 $$
-I_{tot} = \sum_{i=1}^{n} J_{i} \\
-U_{1} = U_{2} \\
-\vdots \\
-U_{n-1} = U_{n}  
+\begin{align}
+I_{tot} &= \sum_{i=1}^{n} J_{i} \\
+U_{1} &= U_{2} \\
+&\vdots \\
+U_{n-1} &= U_{n}
+\end{align}  
 $$
 
 ### State- and parameter esimation
