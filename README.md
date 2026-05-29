@@ -44,6 +44,7 @@ Extract the individual electrode ECM parameters to investigate the source of the
   
 #### Electrode level open circuit potential
 Separating the OCV model into electrode-level open-circuit potential (OCP) for each electrode allows one to also estimate the individual electrode capacities. 
+
 $$
 OCV\left(SOC, \theta\right) = OCP^{PE}\left(SOC, \theta_{1}^{PE}, \theta_{0}^{PE}\right) - OCP^{NE}\left(SOC, \theta_{1}^{NE}, \theta_{0}^{NE}\right)
 $$
